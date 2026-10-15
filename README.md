@@ -23,10 +23,10 @@ pip install numpy h5py shapely
 See the [Trident WSI processing guide](https://trident-docs.readthedocs.io/en/latest/quickstart.html) for processing options. From the project directory on a HiPerGator login node, submit the batch job:
 
 ```bash
-sbatch run_batch_slide.sh ./wsi_dir ./output_dir
+sbatch run_batch_slide.sh ./wsi_dir ./trident_processed
 ```
 
-`wsi_dir` contains the slides (`.svs` by default). `output_dir` receives the Trident results, including tile feature H5 files. Wait for this job to finish before labeling.
+`wsi_dir` contains the slides (`.svs` by default). `trident_processed` receives the Trident results, including tile feature H5 files. Wait for this job to finish before labeling.
 
 ## 2. Label tiles from annotations
 
@@ -44,7 +44,7 @@ annotation_dir/
 The JSON files contain cortex and medullary regions in level-zero WSI coordinates. Run:
 
 ```bash
-sbatch batch_labelling.sh ./annotation_dir ./output_dir
+sbatch batch_labelling.sh ./annotation_dir ./path/to/trident_processed
 ```
 
 This adds a `labels` dataset to each matching feature H5 file: `0` = unlabeled, `1` = cortex, `2` = medullary. The run report is `output_dir/batch_labelling_report.csv`.
