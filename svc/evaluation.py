@@ -88,11 +88,12 @@ def labeled_predictions_dataframe(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     decision_scores: np.ndarray,
+    path_column: str = "pt_path",
 ) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "sample_name": sample_names,
-            "pt_path": pt_paths,
+            path_column: pt_paths,
             "x": coordinates[:, 0],
             "y": coordinates[:, 1],
             "true_label_encoded": y_true,

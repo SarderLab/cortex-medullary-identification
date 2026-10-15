@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import torch
+import h5py
 
 
 @dataclass(frozen=True)
@@ -181,6 +182,56 @@ def load_labeled_dataset(samples_df: pd.DataFrame) -> LabeledDataset:
         all_names.append(np.full(count, sample.sample_name, dtype=object))
         all_coordinates.append(sample.coordinates)
         all_paths.append(np.full(count, str(sample.pt_path), dtype=object))
+
+    return LabeledDataset(
+        features=torch.cat(all_features, dim=0),
+        labels=torch.cat(all_labels, dim=0),
+        sample_names=np.concatenate(all_names),
+        coordinates=np.concatenate(all_coordinates, axis=0),
+        pt_paths=np.concatenate(all_paths),
+    )
+
+
+def load_labeled_h5_dataset(samples_df: pd.DataFrame) -> LabeledDataset:
+    """Load cortex and medulla tiles directly from labeled Trident H5 files."""
+    if samples_df.empty:
+        raise ValueError("Cannot load an empty sample DataFrame")
+
+    all_features: list[torch.Tensor] = []
+    all_labels: list[torch.Tensor] = []
+    all_names: list[np.ndarray] = []
+    all_coordinates: list[np.ndarray] = []
+    all_paths: list[np.ndarray] = []
+    for row in samples_df.itertuples(index=False):
+        path = Path(row.feature_path)
+        with h5py.File(path, "r") as handle:
+            if any(name not in handle for name in ("features", "coords", "labels")):
+                raise ValueError(f"Missing features, coords, or labels in {path}")
+            features = handle["features"]
+            coords = handle["coords"]
+            raw_labels = np.asarray(handle["labels"][:])
+            if features.ndim != 2 or coords.shape != (len(features), 2):
+                raise ValueError(f"Invalid features or coords shape in {path}")
+            if raw_labels.shape != (len(features),) or not np.isin(raw_labels, [0, 1, 2]).all():
+                raise ValueError(f"Invalid tile labels in {path}")
+            indices = np.flatnonzero((raw_labels == 1) | (raw_labels == 2))
+            if not len(indices):
+                raise ValueError(f"No cortex or medulla tiles in {path}")
+            selected_features = torch.from_numpy(
+                np.asarray(features[indices], dtype=np.float32)
+            )
+            selected_coords = np.asarray(coords[indices], dtype=np.int64)
+            selected_labels = torch.from_numpy(
+                raw_labels[indices].astype(np.int64) - 1
+            )
+        count = len(indices)
+        print(f"{row.sample_name} | tiles={count:,} | cortex={int((selected_labels == 0).sum()):,} "
+              f"| medullary={int((selected_labels == 1).sum()):,}", flush=True)
+        all_features.append(selected_features)
+        all_labels.append(selected_labels)
+        all_names.append(np.full(count, row.sample_name, dtype=object))
+        all_coordinates.append(selected_coords)
+        all_paths.append(np.full(count, str(path), dtype=object))
 
     return LabeledDataset(
         features=torch.cat(all_features, dim=0),

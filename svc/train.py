@@ -21,7 +21,7 @@ from .config import (
     LABEL_NAMES,
     RAW_LABEL_MAPPING,
 )
-from .data import load_labeled_dataset
+from .data import load_labeled_dataset, load_labeled_h5_dataset
 from .evaluation import (
     classification_metrics,
     labeled_predictions_dataframe,
@@ -34,7 +34,7 @@ from .gpu_model import (
     train_gpu_pipeline,
     write_json,
 )
-from .manifest import load_split_samples
+from .manifest import load_h5_split_samples, load_split_samples
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,6 +42,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Train and save a GPU cortex/medulla PCA + RBF SVC.",
     )
     parser.add_argument("--xlsx", type=Path, default=DEFAULT_SPLIT_XLSX)
+    parser.add_argument("--manifest", type=Path,
+                        help="CSV split manifest of labeled Trident H5 files")
     parser.add_argument("--feature-root", type=Path, default=DEFAULT_FEATURE_ROOT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_MODEL_DIR)
     parser.add_argument("--n-components", type=int, default=BEST_N_COMPONENTS)
@@ -67,21 +69,30 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.manifest is not None:
+        load_split = lambda split: load_h5_split_samples(args.manifest, split)
+        load_dataset = load_labeled_h5_dataset
+    else:
+        load_split = lambda split: load_split_samples(args.xlsx, args.feature_root, split)
+        load_dataset = load_labeled_dataset
+
     print("Loading training manifest", flush=True)
-    train_df = load_split_samples(args.xlsx, args.feature_root, "train")
+    train_df = load_split("train")
     fitted_splits = ["train"]
+    val_df = load_split("val") if args.manifest is not None or args.include_val else None
     if args.include_val:
-        val_df = load_split_samples(args.xlsx, args.feature_root, "val")
+        assert val_df is not None
         train_df = pd.concat([train_df, val_df], ignore_index=True)
         fitted_splits.append("val")
 
     print("Loading test manifest", flush=True)
-    test_df = load_split_samples(args.xlsx, args.feature_root, "test")
+    test_df = load_split("test")
 
     print(f"Loading {len(train_df):,} fitting samples", flush=True)
-    train_data = load_labeled_dataset(train_df)
+    train_data = load_dataset(train_df)
+    val_data = load_dataset(val_df) if val_df is not None and not args.include_val else None
     print(f"Loading {len(test_df):,} test samples", flush=True)
-    test_data = load_labeled_dataset(test_df)
+    test_data = load_dataset(test_df)
 
     print(
         f"Training GPU SVC on {len(train_data.labels):,} tiles with "
@@ -100,16 +111,17 @@ def main(argv: list[str] | None = None) -> int:
     metadata.update(
         {
             "model_type": "cuml StandardScaler -> PCA -> RBF SVC",
-            "xlsx_path": str(args.xlsx.expanduser().resolve()),
-            "feature_root": str(args.feature_root.expanduser().resolve()),
+            "training_source": "trident_h5" if args.manifest is not None else "pt_csv",
             "fitted_splits": fitted_splits,
             "evaluation_split": "test",
             "sample_counts": {
                 "fit": int(len(train_df)),
+                "val": int(len(val_df)) if val_data is not None else 0,
                 "test": int(len(test_df)),
             },
             "tile_counts": {
                 "fit": int(len(train_data.labels)),
+                "val": int(len(val_data.labels)) if val_data is not None else 0,
                 "test": int(len(test_data.labels)),
             },
             "class_counts_fit": {
@@ -129,6 +141,11 @@ def main(argv: list[str] | None = None) -> int:
             "gpu": bundle["gpu"],
         }
     )
+    if args.manifest is not None:
+        metadata["manifest_path"] = str(args.manifest.expanduser().resolve())
+    else:
+        metadata["xlsx_path"] = str(args.xlsx.expanduser().resolve())
+        metadata["feature_root"] = str(args.feature_root.expanduser().resolve())
 
     model_path = save_bundle(bundle, output_dir / "svc_pipeline.pkl", metadata)
     write_json(metadata, output_dir / "metadata.json")
@@ -147,6 +164,19 @@ def main(argv: list[str] | None = None) -> int:
     train_metrics["train_tiles"] = int(len(train_true))
     train_metrics["fitted_splits"] = fitted_splits
     write_json(train_metrics, output_dir / "train_metrics.json")
+
+    if val_data is not None:
+        print("Evaluating validation tiles", flush=True)
+        val_pred, val_scores = predict_gpu(
+            bundle, val_data.features,
+            batch_size=args.prediction_batch_size,
+            threshold=args.threshold,
+        )
+        val_true = val_data.labels.numpy().astype(np.int32, copy=False)
+        val_metrics = classification_metrics(val_true, val_pred, val_scores)
+        val_metrics["threshold"] = float(args.threshold)
+        val_metrics["val_tiles"] = int(len(val_true))
+        write_json(val_metrics, output_dir / "val_metrics.json")
 
     print("Evaluating held-out test tiles", flush=True)
     y_pred, scores = predict_gpu(
@@ -169,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         y_true=y_true,
         y_pred=y_pred,
         decision_scores=scores,
+        path_column="feature_path" if args.manifest is not None else "pt_path",
     )
     predictions.to_csv(output_dir / "test_tile_predictions.csv", index=False)
 

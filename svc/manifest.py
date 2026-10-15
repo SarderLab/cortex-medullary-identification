@@ -123,6 +123,46 @@ def load_split_samples(
     )
 
 
+def load_h5_split_samples(manifest_path: str | Path, split: str) -> pd.DataFrame:
+    """Return one WSI split from a CSV of labeled Trident feature H5 files."""
+    manifest_path = Path(manifest_path).expanduser().resolve()
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Split manifest does not exist: {manifest_path}")
+    if split not in ALLOWED_SPLITS:
+        raise ValueError(f"split must be one of {sorted(ALLOWED_SPLITS)}")
+
+    df = pd.read_csv(manifest_path, dtype={"sample_name": "string", "split": "string",
+                                           "feature_path": "string"})
+    _require_columns(df, {"sample_name", "split", "feature_path"}, manifest_path)
+    for column in ("sample_name", "split", "feature_path"):
+        if df[column].isna().any() or df[column].str.strip().eq("").any():
+            raise ValueError(f"Empty {column} in {manifest_path}")
+        df[column] = df[column].str.strip()
+    df["split"] = df["split"].str.lower()
+    unexpected = sorted(set(df["split"]).difference(ALLOWED_SPLITS))
+    if unexpected:
+        raise ValueError(f"Unexpected splits in {manifest_path}: {unexpected}")
+    if df["sample_name"].duplicated().any():
+        raise ValueError(f"Duplicate sample names in {manifest_path}")
+
+    def resolve_feature(value: str) -> Path:
+        path = Path(value).expanduser()
+        return (path if path.is_absolute() else manifest_path.parent / path).resolve()
+
+    df["feature_path"] = df["feature_path"].map(resolve_feature)
+    if df["feature_path"].duplicated().any():
+        raise ValueError(f"Duplicate feature paths in {manifest_path}")
+    df = df.loc[df["split"] == split].copy()
+    if df.empty:
+        raise ValueError(f"No rows with split={split!r} in {manifest_path}")
+    for row in df.itertuples(index=False):
+        if row.feature_path.suffix.lower() != ".h5" or not row.feature_path.is_file():
+            raise FileNotFoundError(f"Missing feature H5 file: {row.feature_path}")
+        if row.feature_path.stem != row.sample_name:
+            raise ValueError(f"Sample name {row.sample_name} does not match {row.feature_path}")
+    return df.reset_index(drop=True)
+
+
 def load_inference_samples(
     xlsx_path: str | Path,
     root_dir: str | Path,

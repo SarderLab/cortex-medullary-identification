@@ -1,9 +1,9 @@
-#!/bin/bash
-#SBATCH --account=pinaki.sarder
-#SBATCH --qos=pinaki.sarder
+#!/usr/bin/env bash
+#SBATCH --account=sarder-hubmap
+#SBATCH --qos=sarder-hubmap
 #SBATCH --job-name=cortex_med_svc
-#SBATCH --output=/blue/pinaki.sarder/j.fermin/cortex_medullary_identification/logs/train_%j.out
-#SBATCH --error=/blue/pinaki.sarder/j.fermin/cortex_medullary_identification/logs/train_%j.err
+#SBATCH --output=logs/train_%j.out
+#SBATCH --error=logs/train_%j.err
 #SBATCH --time=12:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
@@ -12,17 +12,23 @@
 
 set -euo pipefail
 
+if [[ $# -lt 1 ]]; then
+  echo "Usage: sbatch scripts/train_and_eval.sbatch SPLITS_CSV [MODEL_DIR]" >&2
+  exit 2
+fi
+
+manifest=$1
+model_dir=${2:-./models}
+project_dir=${PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$PWD}}
+
 module load conda
-conda activate "${SVC_CONDA_ENV:-/blue/pinaki.sarder/j.fermin/conda/envs/rapids_svc}"
+conda activate "${SVC_CONDA_ENV:-rapids_svc}"
+cd "$project_dir"
+mkdir -p "$model_dir"
 
-PROJECT_DIR="/blue/pinaki.sarder/j.fermin/cortex_medullary_identification"
-cd "${PROJECT_DIR}"
-mkdir -p models
-
-python -m svc.train \
-  --xlsx "${TRAIN_XLSX:-/blue/pinaki.sarder/j.fermin/DigitAb_Master/Segmentation/csv_files/case_split_70_15_151.xlsx}" \
-  --feature-root "${TRAIN_FEATURE_ROOT:-/orange/pinaki.sarder/j.fermin/cort_med_wsi/UNI_V1_features}" \
-  --output-dir "${MODEL_DIR:-${PROJECT_DIR}/models}" \
+exec python -m svc.train \
+  --manifest "$manifest" \
+  --output-dir "$model_dir" \
   --n-components "${N_COMPONENTS:-1024}" \
   --C "${SVC_C:-2.0}" \
   --threshold "${SVC_THRESHOLD:-0.0}" \
