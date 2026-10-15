@@ -2,10 +2,10 @@
 
 ## Installation
 
-On HiPerGator, replace `YOUR_REPOSITORY_URL` with this project's Git URL:
+On HiPerGator:
 
 ```bash
-git clone YOUR_REPOSITORY_URL cortex_medullary_identification
+git clone https://github.com/UFerminJamie/cortex-medullary-identification.git cortex_medullary_identification
 cd cortex_medullary_identification
 module load conda
 conda create -n trident python=3.10 -y
