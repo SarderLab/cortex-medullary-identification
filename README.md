@@ -34,9 +34,11 @@ Place annotation masks in folders named after each WSI file stem (for example, `
 
 ```text
 annotation_dir/
-  sample/
+  sample1/
     cortical_gt.json
     medullary_gt.json
+  sample2/
+    cortical_gt.json
 ```
 
 The JSON files contain cortex and medullary regions in level-zero WSI coordinates. Run:
