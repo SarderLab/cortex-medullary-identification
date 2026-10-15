@@ -8,8 +8,8 @@ On HiPerGator:
 git clone https://github.com/UFerminJamie/cortex-medullary-identification.git 
 cd cortex_medullary_identification
 module load conda
-conda create -n trident python=3.10 -y
-conda activate trident
+conda create -n venv python=3.10 -y
+conda activate venv
 git clone https://github.com/mahmoodlab/TRIDENT.git TRIDENT
 cd TRIDENT
 pip install -e .
