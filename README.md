@@ -14,6 +14,7 @@ cd TRIDENT
 pip install -e .
 cd ..
 pip install numpy h5py shapely
+pip install -r requirements-svc.txt
 ```
 
 ## 1. Run WSI processing with Trident
@@ -60,12 +61,8 @@ python -m svc.split_h5 --job-dir ./output_dir --output ./output_dir/splits.csv
 
 ## 4. Train and evaluate the SVC
 
-Use a separate `rapids_svc` Conda environment with cuML and CuPy installed for HiPerGator's CUDA version (see the [RAPIDS installation guide](https://docs.nvidia.com/datascience/install/)). Install the remaining Python packages, then submit the GPU job from the project directory:
-
 ```bash
-conda activate rapids_svc
-pip install -r requirements-svc.txt
 sbatch scripts/train_and_eval.sbatch ./output_dir/splits.csv ./models
 ```
 
-The job fits on **train**, evaluates **val** without fitting on it, and reports final performance on held-out **test**. It writes `models/svc_pipeline.pkl`, `train_metrics.json`, `val_metrics.json`, `test_metrics.json`, `test_confusion_matrix.png`, and `test_tile_predictions.csv`. Set `SVC_CONDA_ENV` if your RAPIDS environment has a different name or path. The default PCA size is 1024; set `N_COMPONENTS` to at most the smaller of the training tile count and feature width if needed.
+The job fits on **train**, evaluates **val**, and reports final performance on held-out **test**. It writes `models/svc_pipeline.pkl`, `train_metrics.json`, `val_metrics.json`, `test_metrics.json`, `test_confusion_matrix.png`, and `test_tile_predictions.csv`.
