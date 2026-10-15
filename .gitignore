@@ -1,0 +1,8 @@
+models/
+logs/
+TRIDENT/
+bulk_wsi_eval/
+*_cortex_medullary_results/
+__pycache__/
+*.py[cod]
+*.swp

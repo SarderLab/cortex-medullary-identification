@@ -1,0 +1,12 @@
+# Install cuML/CuPy from the RAPIDS channel for the CUDA version on the cluster.
+numpy
+pandas
+openpyxl
+scikit-learn
+torch
+h5py
+scipy
+matplotlib
+pillow
+tiffslide
+shapely
