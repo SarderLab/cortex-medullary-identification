@@ -45,4 +45,4 @@ The JSON files contain cortex and medullary regions in level-zero WSI coordinate
 sbatch batch_labelling.sh ./annotation_dir ./path/to/trident_processed
 ```
 
-This adds a `labels` dataset to each matching feature H5 file: `0` = unlabeled, `1` = cortex, `2` = medullary. The run report is `output_dir/batch_labelling_report.csv`.
+This adds a `labels` dataset to each matching feature H5 file: `0` = unlabeled, `1` = cortex, `2` = medullary. The run report is `/path/to/trident_processed/batch_labelling_report.csv`.
