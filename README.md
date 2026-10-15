@@ -5,7 +5,7 @@
 On HiPerGator:
 
 ```bash
-git clone https://github.com/UFerminJamie/cortex-medullary-identification.git cortex_medullary_identification
+git clone https://github.com/UFerminJamie/cortex-medullary-identification.git 
 cd cortex_medullary_identification
 module load conda
 conda create -n trident python=3.10 -y
@@ -15,7 +15,6 @@ cd TRIDENT
 pip install -e .
 cd ..
 pip install numpy h5py shapely
-mkdir -p logs
 ```
 
 ## 1. Run WSI processing with Trident
