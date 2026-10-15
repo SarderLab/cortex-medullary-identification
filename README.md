@@ -3,8 +3,6 @@ An automated whole-slide image analysis pipeline for identifying and delineating
 
 ## Installation
 
-On HiPerGator:
-
 ```bash
 git clone https://github.com/UFerminJamie/cortex-medullary-identification.git 
 cd cortex_medullary_identification
