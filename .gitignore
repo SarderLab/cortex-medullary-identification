@@ -1,0 +1,11 @@
+models/
+logs/
+TRIDENT/
+40x_512px_256px_overlap/
+dataset_split.csv
+dataset_split.xlsx
+bulk_wsi_eval/
+*_cortex_medullary_results/
+__pycache__/
+*.py[cod]
+*.swp
