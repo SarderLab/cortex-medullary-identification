@@ -68,11 +68,17 @@ def make_splits(job_dir: Path, output: Path, *, seed: int = 42,
     rows.sort(key=lambda row: str(row["sample_name"]))
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["sample_name", "split", "feature_path",
-                                                    "cortex_tiles", "medullary_tiles"])
-        writer.writeheader()
-        writer.writerows(rows)
+    columns = ["sample_name", "split", "feature_path", "cortex_tiles", "medullary_tiles"]
+    if output.suffix.lower() == ".xlsx":
+        import pandas as pd
+        pd.DataFrame(rows, columns=columns).to_excel(output, index=False, engine="openpyxl")
+    elif output.suffix.lower() == ".csv":
+        with output.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=columns)
+            writer.writeheader()
+            writer.writerows(rows)
+    else:
+        raise ValueError("--output must end in .xlsx or .csv")
     return rows
 
 

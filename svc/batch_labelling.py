@@ -13,6 +13,7 @@ import numpy as np
 from shapely.geometry import box
 from shapely.prepared import prep
 
+from .gt_visualization import save_gt_visualization
 from .tile_annotations import ANNOTATION_FILES, load_annotation_geometry
 
 
@@ -26,6 +27,8 @@ def _arguments() -> argparse.Namespace:
                         help="Specific TRIDENT features_<encoder> folder, if more than one exists")
     parser.add_argument("--report", type=Path,
                         help="CSV report path (default: JOB_DIR/batch_labelling_report.csv)")
+    parser.add_argument("--save-gt-visualization", action="store_true",
+                        help="Save WSI thumbnails with cortex/medullary GT overlays and tile counts")
     return parser.parse_args()
 
 
@@ -113,7 +116,8 @@ def _write_labels(handle: h5py.File, labels: np.ndarray) -> None:
         del handle[previous]
 
 
-def _label_h5(path: Path, cortex: Any | None, medullary: Any | None) -> dict[str, int]:
+def _label_h5(path: Path, cortex: Any | None, medullary: Any | None,
+              *, need_dimensions: bool = False) -> tuple[dict[str, int], tuple[int, int] | None]:
     with h5py.File(path, "r+") as handle:
         if "features" not in handle or "coords" not in handle:
             raise ValueError("H5 must contain 'features' and 'coords' datasets")
@@ -129,6 +133,14 @@ def _label_h5(path: Path, cortex: Any | None, medullary: Any | None) -> dict[str
         )
         if tile_size is None or int(tile_size) <= 0:
             raise ValueError("H5 coords lack a positive patch_size_level0 attribute")
+        dimensions = None
+        if need_dimensions:
+            attrs = handle["coords"].attrs
+            width = attrs.get("level0_width", handle.attrs.get("level0_width"))
+            height = attrs.get("level0_height", handle.attrs.get("level0_height"))
+            if width is None or height is None or int(width) <= 0 or int(height) <= 0:
+                raise ValueError("H5 coords lack positive level0_width and level0_height attributes")
+            dimensions = (int(width), int(height))
         labels = _labels(coords, int(tile_size), cortex, medullary)
         _write_labels(handle, labels)
     counts = np.bincount(labels, minlength=3)
@@ -138,14 +150,14 @@ def _label_h5(path: Path, cortex: Any | None, medullary: Any | None) -> dict[str
         "cortex_tiles": int(counts[1]),
         "medullary_tiles": int(counts[2]),
         "unlabeled_tiles": int(counts[0]),
-    }
+    }, dimensions
 
 
 def _write_report(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     pending = path.with_name(path.name + ".tmp")
     fields = ["sample", "status", "h5_path", "total_tiles", "labelled_tiles",
-              "cortex_tiles", "medullary_tiles", "unlabeled_tiles", "detail"]
+              "cortex_tiles", "medullary_tiles", "unlabeled_tiles", "visualization_path", "detail"]
     with pending.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
@@ -171,7 +183,8 @@ def main() -> int:
     for sample_dir in sorted(path for path in annotation_dir.iterdir() if path.is_dir()):
         row: dict[str, Any] = {"sample": sample_dir.name, "status": "", "h5_path": "",
                                "total_tiles": 0, "labelled_tiles": 0, "cortex_tiles": 0,
-                               "medullary_tiles": 0, "unlabeled_tiles": 0, "detail": ""}
+                               "medullary_tiles": 0, "unlabeled_tiles": 0,
+                               "visualization_path": "", "detail": ""}
         gt_paths = {name: sample_dir / file_name
                     for name, file_name in ANNOTATION_FILES.items()}
         if not any(path.is_file() for path in gt_paths.values()):
@@ -186,7 +199,19 @@ def main() -> int:
                     row["h5_path"] = str(h5_path)
                     cortex = load_annotation_geometry(gt_paths["cortex"])
                     medullary = load_annotation_geometry(gt_paths["medullary"])
-                    row.update(_label_h5(h5_path, cortex, medullary))
+                    counts, dimensions = _label_h5(
+                        h5_path, cortex, medullary,
+                        need_dimensions=args.save_gt_visualization,
+                    )
+                    row.update(counts)
+                    if args.save_gt_visualization:
+                        visualization = save_gt_visualization(
+                            job_dir, sample_dir.name, dimensions=dimensions,
+                            cortex=cortex, medullary=medullary,
+                            cortex_tiles=counts["cortex_tiles"],
+                            medullary_tiles=counts["medullary_tiles"],
+                        )
+                        row["visualization_path"] = str(visualization)
                     row["status"] = "processed"
             except (OSError, ValueError, KeyError, TypeError) as error:
                 row["status"] = "error"
