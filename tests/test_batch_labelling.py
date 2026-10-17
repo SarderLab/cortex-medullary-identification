@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image
 from shapely.geometry import box, mapping
 
-from svc.batch_labelling import main
+from scripts.batch_labelling import main
 
 
 class BatchLabellingVisualizationTests(unittest.TestCase):

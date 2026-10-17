@@ -9,12 +9,6 @@ import h5py
 import numpy as np
 
 
-DEFAULT_H5 = Path(
-    "/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed_final/KPMP/"
-    "40x_512px_256px_overlap/features_uni_v1/S-2508-006635_PAS_2of2.h5"
-)
-
-
 def _format_attribute(value: object) -> str:
     if isinstance(value, bytes):
         return repr(value.decode("utf-8", errors="replace"))
@@ -53,8 +47,7 @@ def inspect_h5(path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path", nargs="?", type=Path, default=DEFAULT_H5,
-                        help="H5 file to inspect (defaults to the KPMP sample)")
+    parser.add_argument("path", type=Path, help="TRIDENT feature H5 file to inspect")
     args = parser.parse_args()
     inspect_h5(args.path)
 

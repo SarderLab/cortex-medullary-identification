@@ -10,8 +10,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from svc.h5_svm import workbook_rows
-from svc.split_h5 import make_splits
+from scripts.h5_svm import workbook_rows
+from scripts.split_h5 import make_splits
 
 
 class SplitWorkbookTests(unittest.TestCase):

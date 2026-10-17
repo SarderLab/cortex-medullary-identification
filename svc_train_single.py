@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from svc.h5_svm import (FEATURE_ROOT, KPMP, c_name, decision_scores, fit_svc,
+from scripts.h5_svm import (FEATURE_ROOT, KPMP, c_name, decision_scores, fit_svc,
                         load_split, metric_row, metrics, save_cm, save_model,
                         workbook_rows)
 

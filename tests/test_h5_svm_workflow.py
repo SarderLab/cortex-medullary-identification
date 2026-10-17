@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 
 from inference import aggregate, map_payload, save_visualizations
-from svc.h5_svm import load_tiles, metrics
+from scripts.h5_svm import load_tiles, metrics
 
 
 class H5SvmWorkflowTests(unittest.TestCase):

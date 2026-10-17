@@ -19,6 +19,7 @@ The workflow includes:
 5. Running inference and generating spatial heatmaps.
 
 Before changing a workflow stage, trace its inputs and outputs through the relevant scripts and documentation. Preserve established data formats and slide-level split behavior.
+The active Python modules and optional H5 QA utilities live in `scripts/`; the root shell launchers remain the workflow entrypoints.
 
 ## Before making changes
 - Read the repository’s `README.md` before making changes. Also read relevant documentation for the files or workflow being modified.

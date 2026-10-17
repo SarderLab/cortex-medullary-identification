@@ -73,6 +73,16 @@ sbatch batch_labelling.sh "$ANNOTATION_DIR" "$JOB_DIR"
 
 The job adds `labels` to matching `features_uni_v1/*.h5` files and writes `batch_labelling_report.csv`. Review that report before splitting. The launcher also saves GT thumbnail overlays by default.
 
+For optional H5 and tile-label checks, run:
+
+```bash
+python -m scripts.inspect_h5 "$H5_DIR/features_uni_v1/SAMPLE.h5"
+```
+
+```bash
+python -m scripts.visualize_tile_labels "$H5_DIR/features_uni_v1/SAMPLE.h5" --overlap 0
+```
+
 ## Create train, validation, and test splits
 
 Build a real Excel workbook named `dataset_split.xlsx` from the labeled feature H5 files. Keep it in `JOB_DIR` so an existing workbook in this repository is not replaced:
@@ -82,7 +92,7 @@ SPLIT_XLSX="$JOB_DIR/dataset_split.xlsx"
 ```
 
 ```bash
-python -m svc.split_h5 --job-dir "$JOB_DIR" --features-dir "$H5_DIR/features_uni_v1" --output "$SPLIT_XLSX"
+python -m scripts.split_h5 --job-dir "$JOB_DIR" --features-dir "$H5_DIR/features_uni_v1" --output "$SPLIT_XLSX"
 ```
 
 The generator assigns approximately 70%/15%/15% of labeled WSIs to `train`, `val`, and `test` with seed 42. Review and edit the workbook so slides from the same patient stay in one split. Save it as an actual `.xlsx` file, not CSV text renamed to `.xlsx`.
@@ -124,7 +134,7 @@ Use the `C` and kernel selected by the grid search, or choose them before lookin
 sbatch svc_train_single.sh --xlsx "$SPLIT_XLSX" --h5-dir "$H5_DIR" --C 2 --kernel rbf --tile-mode all --include-val --model-dir "$JOB_DIR/output/model_weights"
 ```
 
-The model fits on train plus validation, then evaluates once on test. It saves `svc_2_rbf.pkl`, a metrics workbook, and train/test confusion matrix PNGs under `--model-dir`. This H5 model has no PCA; use it with `inference.py`, not a `svc_pipeline.pkl` from another workflow.
+The model fits on train plus validation, then evaluates once on test. It saves `svc_2_rbf.pkl`, a metrics workbook, and train/test confusion matrix PNGs under `--model-dir`. Use this model with `inference.py`.
 
 Flags:
 
