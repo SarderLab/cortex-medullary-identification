@@ -117,22 +117,12 @@ To build `dataset_all_split.xlsx` from all available KPMP WSIs with matching
 python -m scripts.dataset_all_split
 ```
 
-This searches the three `Cort_Med_Project/KPMP_*/Labelled_files` directories and
-`KPMP_batch2` through `KPMP_batch6/Labelled_files`, plus
-`/orange/pinaki.sarder/Davy_Jones_Locker/MMAI_OT2_Data/UF/Kidney_Biopsy_Images/Converted_TIFF_Images`,
-recursively. It keeps the
-five columns and existing tile counts from `dataset_split.xlsx` for matching
-slides. Slides in the UF converted TIFF directory receive `UF_CKD`; other new
-slides receive `holdout`. New slides have `0.0` for both tile counts, and
-existing non-UF splits are retained.
-Slides without a matching H5 file are omitted. If a WSI appears at multiple
-paths, its existing workbook path is preferred; otherwise the first path in
-sorted order is used. The output must not already exist.
+### Options
 
-Use `--wsi-dirs DIR [DIR ...]`, `--h5-dir DIR`, `--source FILE`, or `--output FILE`
-to supply other locations. `--h5-dir` should point to the feature H5 folder
-for the encoder and tile geometry used by inference. The new workbook is
-ignored by Git because it is generated from research data.
+- **`--wsi-dirs DIR [DIR ...]`** — Use different WSI directories.
+- **`--h5-dir DIR`** — Use a different feature H5 folder. It must match the encoder and tile geometry used for inference.
+- **`--source FILE`** — Use a different source workbook.
+- **`--output FILE`** — Set the output workbook path.
 
 ## Optional GPU SVC grid search
 
