@@ -117,7 +117,7 @@ To build `dataset_all_split.xlsx` from all available KPMP WSIs with matching
 python -m scripts.dataset_all_split
 ```
 
-### Options
+Flags:
 
 - `--wsi-dirs DIR [DIR ...]` — Use different WSI directories.
 - `--h5-dir DIR`** — Use a different feature H5 folder. It must match the encoder and tile geometry used for inference.
