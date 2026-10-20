@@ -124,7 +124,7 @@ Flags:
 - `--source FILE` — Use a different source workbook.
 - `--output FILE` — Set the output workbook path.
 
-## Optional GPU SVC grid search
+## GPU SVC grid search
 
 Search linear and RBF kernels and several `C` values using training data for fitting and validation data for selection:
 
@@ -176,18 +176,19 @@ Inference writes:
 - `<sample>_mask_gt.json` — Written when at least one matching GT source file exists.
 
 Flags:
-- `--visualize` — generates PNGs to `$JOB_DIR/predictions_visualization:
+- `--visualize` — generates PNGs to `$JOB_DIR/predictions_visualization`:
   - `<sample>_heatmap.png`
   - `<sample>_refined_heatmap.png`
   - `<sample>_mask_h.png` — Raw heatmap thresholded at zero.
   - `<sample>_mask_rh.png` — Smoothed heatmap thresholded at zero.
 - `--tissue-mask-dir` — Tissue GeoJSON directory. Defaults to `$JOB_DIR/contours_geojson`.
-- `--annotation-dir` — Directory containing GT annotation files.
+- `--annotation-dir` — Directory containing GT JSON annotation files.
 - `--contour-alpha` — Fill opacity for mask JSONs and PNG masks; default `0.35`.
 
-### Tissue clipping and mask display
+## Transfer annotation JSON files from HiPerGator to Athena
+
+Use the [HPG-ATHENA-Transfer](https://github.com/UFerminJamie/HPG-ATHENA-Transfer) tool to attach annotation JSON documents from HiPerGator to their matching slide items in Athena. It reads the JSON files on HiPerGator and sends their annotation contents through Athena’s Girder API.
 
 
-Import each JSON into the matching WSI item in Athena while signed in. The linked Athena item requires access, and inference does not upload annotations automatically. [Digital Slide Archive's annotation schema](https://girder.github.io/large_image/annotations.html) documents the format.
 
 
