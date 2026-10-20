@@ -119,10 +119,10 @@ python -m scripts.dataset_all_split
 
 ### Options
 
-- **`--wsi-dirs DIR [DIR ...]`** — Use different WSI directories.
-- **`--h5-dir DIR`** — Use a different feature H5 folder. It must match the encoder and tile geometry used for inference.
-- **`--source FILE`** — Use a different source workbook.
-- **`--output FILE`** — Set the output workbook path.
+- `--wsi-dirs DIR [DIR ...]` — Use different WSI directories.
+- `--h5-dir DIR`** — Use a different feature H5 folder. It must match the encoder and tile geometry used for inference.
+- `--source FILE` — Use a different source workbook.
+- `--output FILE` — Set the output workbook path.
 
 ## Optional GPU SVC grid search
 
