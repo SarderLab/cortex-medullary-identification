@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,8 +13,13 @@ import h5py
 import matplotlib
 import numpy as np
 from PIL import Image, ImageChops
+from shapely.geometry import MultiPolygon, box
 
-from scripts.inference import aggregate, map_payload, refinement_scores, save_visualizations
+from scripts.convert_inference_json import legacy_to_annotation
+from scripts.inference import (aggregate, contour_payload, heatmap_payload,
+                               load_sample_contours, load_tissue_geometry, map_payload,
+                               save_sample_exports, save_visualizations,
+                               threshold_grid_geometry)
 from scripts.h5_svm import load_tiles, metrics
 
 
@@ -46,29 +52,206 @@ class H5SvmWorkflowTests(unittest.TestCase):
         origin, raw, refined, seen = aggregate(coords, np.array([-2, 1], dtype=np.float32), 512, 256, 1)
         self.assertGreaterEqual(raw[0, 1], 0)
         self.assertGreaterEqual(refined[0, 1], 0)
-        payload = map_payload("sample.svs", "all", origin, 256, refined, seen, mask=True)
-        self.assertIn([256, 0, 1], payload["cells"])
+        payload = map_payload("sample.svs", "all", origin, 256, refined, seen,
+                              mask=True, layer="mask")
+        grid = payload["elements"][0]
+        self.assertEqual(grid["type"], "griddata")
+        self.assertEqual(grid["origin"], [128, 128, 0])
+        self.assertEqual(grid["gridWidth"], 3)
+        self.assertEqual(grid["values"][1], 1)
 
-    def test_refinement_uses_confident_tiles_and_rescores_all_tiles(self):
-        features = np.arange(12, dtype=np.float32).reshape(6, 2)
-        scores = np.array([-0.6, -0.4, 0, 0.4, 0.7, -0.9], dtype=np.float32)
-        rescores = np.array([-1, -0.2, 0.1, 0.2, 1, -2], dtype=np.float32)
-        with patch("scripts.inference.fit_svc", return_value={"svc": "second"}) as fit, \
-             patch("scripts.inference.decision_scores", return_value=rescores) as predict:
-            result = refinement_scores(features, scores, 0.4, 2, "rbf", 8192, 100)
-        np.testing.assert_array_equal(fit.call_args.args[0], features[[0, 4, 5]])
-        np.testing.assert_array_equal(fit.call_args.args[1], [0, 1, 0])
-        self.assertEqual(fit.call_args.args[2:], (2, "rbf", 8192))
-        np.testing.assert_array_equal(predict.call_args.args[1], features)
-        self.assertEqual(predict.call_args.args[2], 100)
-        np.testing.assert_array_equal(result, rescores)
+    def test_athena_json_keeps_signed_scores_and_hides_unobserved_cells(self):
+        scores = np.array([[-2, 0, 2], [1, 9, -1]], dtype=np.float32)
+        seen = np.array([[True, True, True], [True, False, True]])
+        origin = np.array([100, 200])
+        heatmap = map_payload("sample.svs", "all", origin, 100, scores, seen,
+                              mask=False, layer="heatmap")
+        mask = map_payload("sample.svs", "all", origin, 100, scores, seen,
+                           mask=True, layer="mask")
+        self.assertEqual([document["name"] for document in heatmap],
+                         ["cortical heatmap", "medullary heatmap"])
+        cortical, medullary = heatmap
+        self.assertEqual(len(cortical["elements"]), 2)
+        self.assertEqual(cortical["elements"][0]["center"], [150, 250, 0])
+        self.assertEqual(cortical["elements"][0]["user"]["decision_score"], -2)
+        self.assertEqual(cortical["elements"][1]["user"]["tile_x"], 300)
+        self.assertEqual(len(medullary["elements"]), 3)
+        self.assertEqual(medullary["elements"][0]["user"]["decision_score"], 0)
+        self.assertEqual(medullary["elements"][1]["user"]["decision_score"], 2)
+        self.assertEqual(mask["elements"][0]["values"], [0, 1, 1, 1, -1, 0])
+        self.assertEqual(mask["elements"][0]["minColor"], "rgba(0,0,0,0)")
+        json.dumps(heatmap, allow_nan=False)
+        json.dumps(mask, allow_nan=False)
 
-    def test_refinement_skips_slide_without_both_confident_classes(self):
-        features = np.arange(6, dtype=np.float32).reshape(3, 2)
-        scores = np.array([0.1, 0.4, 0.8], dtype=np.float32)
-        with patch("scripts.inference.fit_svc") as fit:
-            self.assertIsNone(refinement_scores(features, scores, 0.4, 2, "rbf", 8192, 100))
-        fit.assert_not_called()
+    def test_legacy_cell_maps_convert_without_rerunning_inference(self):
+        metadata = {"sample_name": "sample.svs", "tile_mode": "all",
+                    "origin_level0": [100, 200], "cell_size_level0": 100}
+        mask = legacy_to_annotation({**metadata, "cells": [[100, 200, 0],
+                                                        [300, 200, 1]]}, "mask")
+        self.assertEqual(mask["elements"][0]["values"], [0, -1, 1])
+        heatmap = legacy_to_annotation({**metadata, "cells": [[100, 200, 0.8, 0.2, 0],
+                                                           [300, 200, 0.2, 0.8, 1]]}, "heatmap")
+        self.assertEqual([document["name"] for document in heatmap],
+                         ["cortical heatmap", "medullary heatmap"])
+        self.assertLess(heatmap[0]["elements"][0]["user"]["decision_score"], 0)
+        self.assertGreater(heatmap[1]["elements"][0]["user"]["decision_score"], 0)
+
+    def test_dsa_heatmap_and_contour_exports_keep_geometry_metadata_and_unique_ids(self):
+        coords = np.array([[100, 200], [400, 200], [700, 400]], dtype=np.int64)
+        scores = np.array([-4, 2, 1], dtype=np.float32)
+        heatmap = heatmap_payload("sample", "all", coords, scores, 256, 128,
+                                  origin_level0=np.array([100, 200]), source_stride=128)
+        refined_heatmap = heatmap_payload(
+            "sample", "all", coords, scores / 2, 256, 128,
+            layer="refined_heatmap", origin_level0=np.array([100, 200]),
+            source_stride=128,
+        )
+        cortex = box(0, 0, 100, 100)
+        medullary = MultiPolygon([box(20, 20, 40, 40), box(120, 120, 140, 140)])
+        contours = contour_payload("sample", cortex, medullary, 0.35,
+                                   source_status={"cortex": "present", "medullary": "present"})
+        predictions = contour_payload("sample", cortex, medullary, 0.35,
+                                      source_status={"cortex": "derived", "medullary": "derived"},
+                                      layer="mask_prediction")
+
+        with tempfile.TemporaryDirectory() as directory:
+            paths = save_sample_exports(Path(directory), "case/sample.svs", heatmap,
+                                        refined_heatmap, predictions, contours)
+            heatmap_path = paths[0]
+            contour_path = Path(directory) / "sample_mask_gt.json"
+            self.assertEqual(heatmap_path.name, "sample_heatmap.json")
+            self.assertEqual(contour_path.name, "sample_mask_gt.json")
+            parsed_heatmap = json.loads(heatmap_path.read_text(encoding="utf-8"))
+            parsed_refined = json.loads((Path(directory) / "sample_refined_heatmap.json").read_text(encoding="utf-8"))
+            parsed_contours = json.loads(contour_path.read_text(encoding="utf-8"))
+            parsed_predictions = json.loads((Path(directory) / "sample_mask_prediction.json").read_text(encoding="utf-8"))
+
+        self.assertEqual([document["name"] for document in parsed_heatmap],
+                         ["cortical heatmap", "medullary heatmap"])
+        self.assertEqual([document["name"] for document in parsed_contours],
+                         ["cortical", "medullary"])
+        self.assertEqual([document["name"] for document in parsed_predictions],
+                         ["cortical mask prediction", "medullary mask prediction"])
+        cortical_tile = parsed_heatmap[0]["elements"][0]
+        self.assertEqual(cortical_tile["type"], "rectangle")
+        self.assertEqual(cortical_tile["center"], [228, 264, 0])
+        self.assertEqual((cortical_tile["width"], cortical_tile["height"]), (256, 128))
+        self.assertEqual(cortical_tile["user"]["class"], "cortical")
+        self.assertEqual(cortical_tile["user"]["decision_score"], -4)
+        self.assertEqual(cortical_tile["user"]["scaled_score"], 1)
+        self.assertEqual(parsed_heatmap[0]["attributes"]["scoreColumn"], "decision_score")
+        medullary_tiles = parsed_heatmap[1]["elements"]
+        self.assertEqual([element["user"]["scaled_score"] for element in medullary_tiles],
+                         [1, 0.5])
+        self.assertTrue(all(element["fillColor"].startswith("rgba(255, 105, 180, ")
+                            for element in medullary_tiles))
+        self.assertEqual(parsed_contours[0]["elements"][0]["fillColor"],
+                         "rgba(0, 255, 255, 0.35)")
+        self.assertEqual(parsed_contours[0]["elements"][0]["lineColor"],
+                         "rgba(0, 255, 255, 1)")
+        self.assertEqual(parsed_contours[0]["elements"][0]["user"]["class"], "cortical")
+        self.assertEqual(len(parsed_contours[0]["elements"][0]["holes"]), 1)
+        cortical_points = parsed_contours[0]["elements"][0]["points"]
+        self.assertEqual((min(point[0] for point in cortical_points),
+                          max(point[0] for point in cortical_points),
+                          min(point[1] for point in cortical_points),
+                          max(point[1] for point in cortical_points)), (0, 100, 0, 100))
+        self.assertEqual(parsed_contours[1]["elements"][0]["fillColor"],
+                         "rgba(255, 105, 180, 0.35)")
+        self.assertEqual(parsed_contours[1]["elements"][0]["user"]["class"], "medullary")
+        self.assertEqual(len(parsed_contours[1]["elements"]), 2)
+        self.assertTrue(all(
+            len(point) == 3 and point[2] == 0
+            for document in parsed_contours
+            for element in document["elements"]
+            for ring in [element["points"], *element["holes"]]
+            for point in ring
+        ))
+        all_elements = [element for document in (*parsed_heatmap, *parsed_refined,
+                                                  *parsed_contours,
+                                                  *parsed_predictions)
+                        for element in document["elements"]]
+        ids = [element["id"] for element in all_elements]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertTrue(all(re.fullmatch(r"[0-9a-f]{24}", element_id) for element_id in ids))
+
+    def test_empty_heatmap_class_and_missing_versus_empty_contour_sources(self):
+        heatmap = heatmap_payload("sample", "all", np.array([[1, 2], [3, 4]]),
+                                  np.array([-1, -2]), 64)
+        self.assertEqual([len(document["elements"]) for document in heatmap], [2, 0])
+        with tempfile.TemporaryDirectory() as directory:
+            annotation_dir = Path(directory)
+            sample_dir = annotation_dir / "sample"
+            sample_dir.mkdir()
+            (sample_dir / "cortical_gt.json").write_text(
+                json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+            geometries, statuses = load_sample_contours(annotation_dir, "sample")
+            self.assertIsNone(geometries["cortex"])
+            self.assertIsNone(geometries["medullary"])
+            self.assertEqual(statuses, {"cortex": "empty", "medullary": "missing"})
+            contours = contour_payload("sample", geometries["cortex"],
+                                       geometries["medullary"], source_status=statuses)
+        self.assertEqual([document["name"] for document in contours], ["cortical", "medullary"])
+        self.assertEqual([document["attributes"]["source_status"] for document in contours],
+                         ["empty", "missing"])
+        self.assertEqual([document["elements"] for document in contours], [[], []])
+
+    def test_sample_exports_refuse_to_replace_either_existing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            contour_path = output / "sample_mask_prediction.json"
+            contour_path.write_text("preserve", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                save_sample_exports(output, "sample.svs", [], [], [])
+            self.assertFalse((output / "sample_heatmap.json").exists())
+            self.assertEqual(contour_path.read_text(encoding="utf-8"), "preserve")
+
+    def test_thresholded_prediction_contours_keep_only_tissue_and_respect_zero(self):
+        scores = np.array([[-1, 0, 1], [-1, -1, 1]], dtype=np.float32)
+        seen = np.ones_like(scores, dtype=bool)
+        tissue = box(100, 0, 300, 200)
+        cortex = threshold_grid_geometry(scores, seen, np.array([0, 0]), 100,
+                                        tissue, medullary=False)
+        medullary = threshold_grid_geometry(scores, seen, np.array([0, 0]), 100,
+                                            tissue, medullary=True)
+        self.assertAlmostEqual(cortex.area, 10000)
+        self.assertAlmostEqual(medullary.area, 30000)
+        self.assertTrue(tissue.covers(cortex))
+        self.assertTrue(tissue.covers(medullary))
+        self.assertEqual(cortex.intersection(medullary).area, 0)
+
+    def test_tissue_mask_geojson_is_loaded_by_sample_stem(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "sample_tissue.geojson").write_text(
+                json.dumps({"type": "Polygon", "coordinates": [[[0, 0], [20, 0],
+                           [20, 20], [0, 20], [0, 0]]]}), encoding="utf-8")
+            tissue = load_tissue_geometry(root, "case/sample.svs")
+        self.assertEqual(tissue.area, 400)
+
+    def test_heatmap_and_gt_contours_are_clipped_to_tissue_and_gt_export_can_be_omitted(self):
+        tissue = box(50, 20, 100, 80)
+        heatmap = heatmap_payload("sample", "all", np.array([[0, 0]]),
+                                  np.array([-2]), 100, tissue_geometry=tissue)
+        clipped_tile = heatmap[0]["elements"][0]
+        self.assertEqual(clipped_tile["type"], "polyline")
+        self.assertEqual(clipped_tile["user"]["decision_score"], -2)
+        tile_points = clipped_tile["points"]
+        self.assertEqual((min(point[0] for point in tile_points),
+                          max(point[0] for point in tile_points),
+                          min(point[1] for point in tile_points),
+                          max(point[1] for point in tile_points)), (50, 100, 20, 80))
+        edge_only = heatmap_payload("sample", "all", np.array([[0, 0]]),
+                                    np.array([-2]), 100,
+                                    tissue_geometry=box(100, 0, 200, 100))
+        self.assertEqual(edge_only[0]["elements"], [])
+        gt = contour_payload("sample", box(0, 0, 100, 100), None, 0.2,
+                             tissue_geometry=tissue)
+        self.assertEqual(gt[0]["elements"][0]["fillColor"], "rgba(0, 255, 255, 0.2)")
+        with tempfile.TemporaryDirectory() as directory:
+            save_sample_exports(Path(directory), "sample", heatmap, heatmap, [], None)
+            self.assertFalse((Path(directory) / "sample_mask_gt.json").exists())
+            self.assertTrue((Path(directory) / "sample_mask_prediction.json").exists())
 
     def test_prediction_visualizations_use_thumbnail_and_write_four_pngs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -94,13 +277,15 @@ class H5SvmWorkflowTests(unittest.TestCase):
                 save_visualizations(h5_path, "sample", np.array([100, 100]), 100,
                                     raw, refined, seen, output, annotation_dir)
                 plot.assert_not_called()
-            for suffix in ("heatmap", "refined_heatmap", "aggregate", "mask"):
+            for suffix in ("heatmap", "refined_heatmap", "mask_h", "mask_rh"):
                 with Image.open(output / f"sample_{suffix}.png") as image:
                     self.assertEqual(image.format, "PNG")
                     self.assertGreater(image.width, 500)
                     self.assertGreater(image.height, 500)
-            with Image.open(output / "sample_mask.png") as image:
+            with Image.open(output / "sample_mask_rh.png") as image:
                 mask_without_gt = image.convert("RGB").copy()
+            for suffix in ("aggregate", "mask", "refinement", "heatmap_refinement"):
+                self.assertFalse((output / f"sample_{suffix}.png").exists())
 
             sample_dir = annotation_dir / "sample"
             sample_dir.mkdir(parents=True)
@@ -118,20 +303,9 @@ class H5SvmWorkflowTests(unittest.TestCase):
             np.testing.assert_array_equal(plot.call_args_list[0].args[1], [30, 30, 90, 30])
             save_visualizations(h5_path, "sample", np.array([100, 100]), 100,
                                 raw, refined, seen, output, annotation_dir)
-            with Image.open(output / "sample_mask.png") as image:
+            with Image.open(output / "sample_mask_rh.png") as image:
                 difference = ImageChops.difference(mask_without_gt, image.convert("RGB"))
                 self.assertIsNotNone(difference.getbbox())
-
-            second_raw = np.array([[1, -2], [0, 0.5]], dtype=np.float32)
-            with patch("matplotlib.axes.Axes.plot") as plot:
-                save_visualizations(h5_path, "sample", np.array([100, 100]), 100,
-                                    raw, refined, seen, output, annotation_dir, second_raw)
-            self.assertEqual(plot.call_count, 12)
-            self.assertEqual([call.kwargs["color"] for call in plot.call_args_list],
-                             ["#00ffff", "#ff69b4"] * 6)
-            for suffix in ("refinement", "heatmap_refinement"):
-                with Image.open(output / f"sample_{suffix}.png") as image:
-                    self.assertEqual(image.format, "PNG")
 
 
 if __name__ == "__main__":
