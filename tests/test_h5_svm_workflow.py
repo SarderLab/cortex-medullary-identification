@@ -101,6 +101,11 @@ class H5SvmWorkflowTests(unittest.TestCase):
         scores = np.array([-4, 2, 1], dtype=np.float32)
         heatmap = heatmap_payload("sample", "all", coords, scores, 256, 128,
                                   origin_level0=np.array([100, 200]), source_stride=128)
+        raw_heatmap = heatmap_payload(
+            "sample", "all", coords, scores, 256, 128,
+            layer="raw_heatmap", origin_level0=np.array([100, 200]),
+            source_stride=128,
+        )
         refined_heatmap = heatmap_payload(
             "sample", "all", coords, scores / 2, 256, 128,
             layer="refined_heatmap", origin_level0=np.array([100, 200]),
@@ -115,19 +120,26 @@ class H5SvmWorkflowTests(unittest.TestCase):
                                       layer="mask_prediction")
 
         with tempfile.TemporaryDirectory() as directory:
-            paths = save_sample_exports(Path(directory), "case/sample.svs", heatmap,
-                                        refined_heatmap, predictions, contours)
+            paths = save_sample_exports(Path(directory), "case/sample", heatmap,
+                                        refined_heatmap, predictions, contours,
+                                        raw_heatmap=raw_heatmap)
             heatmap_path = paths[0]
             contour_path = Path(directory) / "sample_mask_gt.json"
+            self.assertEqual(len(paths), 5)
             self.assertEqual(heatmap_path.name, "sample_heatmap.json")
             self.assertEqual(contour_path.name, "sample_mask_gt.json")
             parsed_heatmap = json.loads(heatmap_path.read_text(encoding="utf-8"))
+            parsed_raw = json.loads((Path(directory) / "sample_raw_heatmap.json").read_text(encoding="utf-8"))
             parsed_refined = json.loads((Path(directory) / "sample_refined_heatmap.json").read_text(encoding="utf-8"))
             parsed_contours = json.loads(contour_path.read_text(encoding="utf-8"))
             parsed_predictions = json.loads((Path(directory) / "sample_mask_prediction.json").read_text(encoding="utf-8"))
 
         self.assertEqual([document["name"] for document in parsed_heatmap],
                          ["cortical heatmap", "medullary heatmap"])
+        self.assertEqual([document["name"] for document in parsed_raw],
+                         ["cortical raw heatmap", "medullary raw heatmap"])
+        self.assertEqual(parsed_raw[0]["attributes"]["layer"], "raw_heatmap")
+        self.assertEqual(parsed_raw[0]["elements"][0]["user"]["decision_score"], -4)
         self.assertEqual([document["name"] for document in parsed_contours],
                          ["cortical", "medullary"])
         self.assertEqual([document["name"] for document in parsed_predictions],
@@ -167,7 +179,8 @@ class H5SvmWorkflowTests(unittest.TestCase):
             for ring in [element["points"], *element["holes"]]
             for point in ring
         ))
-        all_elements = [element for document in (*parsed_heatmap, *parsed_refined,
+        all_elements = [element for document in (*parsed_heatmap, *parsed_raw,
+                                                  *parsed_refined,
                                                   *parsed_contours,
                                                   *parsed_predictions)
                         for element in document["elements"]]
@@ -202,9 +215,34 @@ class H5SvmWorkflowTests(unittest.TestCase):
             contour_path = output / "sample_mask_prediction.json"
             contour_path.write_text("preserve", encoding="utf-8")
             with self.assertRaises(FileExistsError):
-                save_sample_exports(output, "sample.svs", [], [], [])
+                save_sample_exports(output, "sample", [], [], [], raw_heatmap=[])
             self.assertFalse((output / "sample_heatmap.json").exists())
             self.assertEqual(contour_path.read_text(encoding="utf-8"), "preserve")
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            raw_path = output / "sample.pyr_raw_heatmap.json"
+            raw_path.write_text("preserve", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                save_sample_exports(output, "sample.pyr", [], [], [], raw_heatmap=[])
+            self.assertFalse((output / "sample.pyr_heatmap.json").exists())
+            self.assertEqual(raw_path.read_text(encoding="utf-8"), "preserve")
+
+    def test_raw_heatmap_preserves_overlapping_tile_scores_and_clips_to_tissue(self):
+        coords = np.array([[0, 0], [50, 0], [200, 0]])
+        scores = np.array([-2, 3, 7], dtype=np.float32)
+        tissue = box(25, 10, 125, 90)
+        raw = heatmap_payload("sample", "all", coords, scores, 100,
+                              layer="raw_heatmap", tissue_geometry=tissue)
+        cortical, medullary = raw
+        self.assertEqual([len(row["elements"]) for row in raw], [1, 1])
+        self.assertEqual(cortical["elements"][0]["user"]["decision_score"], -2)
+        self.assertEqual(medullary["elements"][0]["user"]["decision_score"], 3)
+        self.assertEqual([row["attributes"]["numberOfTiles"] for row in raw], [2, 2])
+        for row in raw:
+            element = row["elements"][0]
+            self.assertEqual(element["type"], "polyline")
+            self.assertTrue(all(25 <= x <= 125 and 10 <= y <= 90
+                                for x, y, _ in element["points"]))
 
     def test_thresholded_prediction_contours_keep_only_tissue_and_respect_zero(self):
         scores = np.array([[-1, 0, 1], [-1, -1, 1]], dtype=np.float32)
@@ -265,8 +303,10 @@ class H5SvmWorkflowTests(unittest.TestCase):
                              tissue_geometry=tissue)
         self.assertEqual(gt[0]["elements"][0]["fillColor"], "rgba(0, 255, 255, 0.2)")
         with tempfile.TemporaryDirectory() as directory:
-            save_sample_exports(Path(directory), "sample", heatmap, heatmap, [], None)
+            save_sample_exports(Path(directory), "sample", heatmap, heatmap, [], None,
+                                raw_heatmap=heatmap)
             self.assertFalse((Path(directory) / "sample_mask_gt.json").exists())
+            self.assertTrue((Path(directory) / "sample_raw_heatmap.json").exists())
             self.assertTrue((Path(directory) / "sample_mask_prediction.json").exists())
 
     def test_prediction_visualizations_use_thumbnail_and_write_four_pngs(self):
