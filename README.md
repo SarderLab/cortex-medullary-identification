@@ -196,11 +196,11 @@ With `--visualize`, exactly four PNGs are written:
 
 ### Tissue clipping and mask display
 
-- **`--tissue-mask-dir`** — Tissue GeoJSON directory. Defaults to `/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed_final/KPMP/contours_geojson`. Matches `<sample>.geojson`, `<sample>_*.geojson`, and `<sample>.*.geojson` files, including TRIDENT names such as `<sample>.noimagej.geojson`. Dotted slide stems such as `.pyr` are preserved.
+- **`--tissue-mask-dir`** — Tissue GeoJSON directory. Defaults to `$JOB_DIR/contours_geojson`.
 - **`--annotation-dir`** — Directory containing GT annotation files.
 - **`--contour-alpha`** — Fill opacity for mask JSONs and PNG masks; default `0.35`.
 
-Tiles are clipped to matching tissue polygons; tiles outside tissue are omitted. Full tiles remain DSA rectangles, while partial tiles are exported as closed polylines. Coordinates use level-zero H5 tile metadata. If a tile is split into multiple polygons, each retains the original score.
+Tiles are clipped to matching tissue polygons; tiles outside tissue are omitted. Full tiles remain DSA rectangles, while partial tiles are exported as closed polylines. Coordinates use level-zero H5 tile metadata. 
 
 DSA JSON exports are root arrays with separate cortical and medullary rows. Masks use cyan for cortex and pink for medulla, with visible outlines. Existing JSON exports are not overwritten; use a new output directory or move them before rerunning.
 
