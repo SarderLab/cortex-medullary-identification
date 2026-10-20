@@ -263,29 +263,36 @@ def load_sample_contours(annotation_dir: Path, sample_name: str) -> tuple[dict, 
 
 def load_tissue_geometry(tissue_mask_dir: Path, sample_name: str) -> Any:
     """Load one slide's GeoJSON tissue footprint from the configured directory."""
-    sample_name = Path(str(sample_name)).stem
-    safe_stem = safe_name(sample_name)
-    candidates = [
-        tissue_mask_dir / f"{sample_name}.geojson",
-        tissue_mask_dir / f"{safe_stem}.geojson",
-        tissue_mask_dir / f"{sample_name}_contours.geojson",
-        tissue_mask_dir / f"{safe_stem}_contours.geojson",
-        tissue_mask_dir / f"{sample_name}.json",
-        tissue_mask_dir / sample_name / "contours.geojson",
-        tissue_mask_dir / safe_stem / "contours.geojson",
-        tissue_mask_dir / sample_name / "tissue.geojson",
-        tissue_mask_dir / safe_stem / "tissue.geojson",
-    ]
-    path = next((candidate for candidate in candidates if candidate.is_file()), None)
-    if path is None and tissue_mask_dir.is_dir():
-        matches = [candidate for candidate in tissue_mask_dir.rglob("*.geojson")
-                   if candidate.stem in (sample_name, safe_stem)
-                   or candidate.stem.startswith(f"{sample_name}_")
-                   or candidate.stem.startswith(f"{safe_stem}_")]
-        if len(matches) == 1:
-            path = matches[0]
-        elif len(matches) > 1:
-            raise ValueError(f"Multiple tissue GeoJSON files match {sample_name}: {matches}")
+    sample_name = Path(str(sample_name)).name
+    # A slide stem can itself end in a suffix such as ".pyr". Try it intact
+    # before removing a possible WSI extension from a filename.
+    path = None
+    for stem in dict.fromkeys((sample_name, Path(sample_name).stem)):
+        safe_stem = safe_name(stem)
+        candidates = [
+            tissue_mask_dir / f"{stem}.geojson",
+            tissue_mask_dir / f"{safe_stem}.geojson",
+            tissue_mask_dir / f"{stem}_contours.geojson",
+            tissue_mask_dir / f"{safe_stem}_contours.geojson",
+            tissue_mask_dir / f"{stem}.json",
+            tissue_mask_dir / stem / "contours.geojson",
+            tissue_mask_dir / safe_stem / "contours.geojson",
+            tissue_mask_dir / stem / "tissue.geojson",
+            tissue_mask_dir / safe_stem / "tissue.geojson",
+        ]
+        path = next((candidate for candidate in candidates if candidate.is_file()), None)
+        if path is None and tissue_mask_dir.is_dir():
+            names = (stem, safe_stem)
+            matches = sorted(candidate for candidate in tissue_mask_dir.rglob("*.geojson")
+                             if any(candidate.stem == name or
+                                    candidate.stem.startswith((f"{name}.", f"{name}_"))
+                                    for name in names))
+            if len(matches) == 1:
+                path = matches[0]
+            elif len(matches) > 1:
+                raise ValueError(f"Multiple tissue GeoJSON files match {stem}: {matches}")
+        if path is not None:
+            break
     if path is None:
         raise FileNotFoundError(
             f"No tissue GeoJSON found for {sample_name} in {tissue_mask_dir}")

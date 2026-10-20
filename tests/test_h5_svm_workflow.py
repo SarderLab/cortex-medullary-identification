@@ -229,6 +229,22 @@ class H5SvmWorkflowTests(unittest.TestCase):
             tissue = load_tissue_geometry(root, "case/sample.svs")
         self.assertEqual(tissue.area, 400)
 
+    def test_tissue_mask_preserves_dotted_slide_stem_and_matches_dot_suffixes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            polygon = {"type": "Polygon", "coordinates": [[[0, 0], [20, 0],
+                       [20, 20], [0, 20], [0, 0]]]}
+            smaller = {"type": "Polygon", "coordinates": [[[0, 0], [10, 0],
+                       [10, 10], [0, 10], [0, 0]]]}
+            (root / "Image_CKD_100_PAS.geojson").write_text(
+                json.dumps(smaller), encoding="utf-8")
+            (root / "Image_CKD_100_PAS.pyr.noimagej.geojson").write_text(
+                json.dumps(polygon), encoding="utf-8")
+            for sample in ("Image_CKD_100_PAS.pyr",
+                           "case/Image_CKD_100_PAS.pyr.tiff"):
+                with self.subTest(sample=sample):
+                    self.assertEqual(load_tissue_geometry(root, sample).area, 400)
+
     def test_heatmap_and_gt_contours_are_clipped_to_tissue_and_gt_export_can_be_omitted(self):
         tissue = box(50, 20, 100, 80)
         heatmap = heatmap_payload("sample", "all", np.array([[0, 0]]),
