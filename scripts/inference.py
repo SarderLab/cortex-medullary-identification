@@ -333,12 +333,14 @@ def _save_json_new(path: Path, payload: list[dict]) -> None:
 
 def save_sample_exports(output_dir: Path, sample_name: str, heatmap: list[dict],
                         refined_heatmap: list[dict], mask_prediction: list[dict],
-                        mask_gt: list[dict] | None = None) -> list[Path]:
-    """Write per-sample DSA exports without replacing existing files."""
-    sample_name = Path(str(sample_name)).stem
+                        mask_gt: list[dict] | None = None, *,
+                        raw_heatmap: list[dict]) -> list[Path]:
+    """Write DSA exports for a sample stem without replacing existing files."""
+    sample_name = Path(str(sample_name)).name
     stem = safe_name(sample_name)
     payloads = [
         (output_dir / f"{stem}_heatmap.json", heatmap),
+        (output_dir / f"{stem}_raw_heatmap.json", raw_heatmap),
         (output_dir / f"{stem}_refined_heatmap.json", refined_heatmap),
         (output_dir / f"{stem}_mask_prediction.json", mask_prediction),
     ]
@@ -533,6 +535,11 @@ def main() -> None:
             origin_level0=origin, source_stride=sample.source_stride,
             tissue_geometry=tissue_geometry,
         )
+        raw_heatmap = heatmap_payload(
+            sample_name, mode, sample.coords, scores, sample.patch,
+            layer="raw_heatmap", origin_level0=origin,
+            source_stride=sample.source_stride, tissue_geometry=tissue_geometry,
+        )
         yy, xx = np.nonzero(seen)
         cell_coords = np.column_stack((origin[0] + xx * sample.source_stride,
                                        origin[1] + yy * sample.source_stride))
@@ -558,13 +565,14 @@ def main() -> None:
         )
         has_gt_sources = any(status != "missing" for status in source_status.values())
         save_sample_exports(output_dir, sample_name, heatmap, refined_heatmap,
-                            mask_prediction, mask_gt if has_gt_sources else None)
+                            mask_prediction, mask_gt if has_gt_sources else None,
+                            raw_heatmap=raw_heatmap)
         if args.visualize:
             save_visualizations(row.h5_path, stem, origin, sample.source_stride,
                                 raw, refined, seen, visualization_dir, args.annotation_dir,
                                 tissue_geometry=tissue_geometry,
                                 mask_alpha=args.contour_alpha)
-        json_count = 4 if has_gt_sources else 3
+        json_count = 5 if has_gt_sources else 4
         output_types = (f"{json_count} JSON files and 4 PNG overlays"
                         if args.visualize else f"{json_count} JSON files")
         print(f"Saved {output_types} for {sample_name} ({int(seen.sum()):,} cells)", flush=True)
