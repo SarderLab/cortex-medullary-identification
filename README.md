@@ -170,47 +170,24 @@ Outputs are saved under `--output-dir/<model-stem>_<sigma>/` (for example, `svc_
 Inference writes:
 
 - `<sample>_heatmap.json` — Signed tile scores with class-specific display opacity.
-- `<sample>_raw_heatmap.json` — One signed SVC score per predicted H5 tile, without overlap aggregation or smoothing. Negative is cortical; zero or positive is medullary. Includes a `raw_heatmap` layer.
-- `<sample>_refined_heatmap.json` — Gaussian-smoothed first-pass heatmap; no second SVC is fitted.
-- `<sample>_mask_prediction.json` — Cortex and medulla polygons thresholded at zero on the unsmoothed source grid.
-- `<sample>_mask_gt.json` — Written when at least one matching GT source file exists. Medulla takes precedence over cortex in overlaps. Missing files are recorded; present but empty files produce empty rows.
+- `<sample>_raw_heatmap.json` — One signed SVC score per tile. Negative is cortical; zero or positive is medullary. Includes a `raw_heatmap` layer.
+- `<sample>_refined_heatmap.json` — Gaussian-smoothed first-pass heatmap.
+- `<sample>_mask_prediction.json` — Cortex and medulla polygons thresholded at zero on the  `<sample>_heatmap`.
+- `<sample>_mask_gt.json` — Written when at least one matching GT source file exists.
 
-With `--visualize`, exactly four PNGs are written:
-
-- `<sample>_heatmap.png`
-- `<sample>_refined_heatmap.png`
-- `<sample>_mask_h.png` — Raw heatmap thresholded at zero.
-- `<sample>_mask_rh.png` — Smoothed heatmap thresholded at zero.
+Flags:
+- `--visualize` — generates PNGs to `$JOB_DIR/predictions_visualization:
+  - `<sample>_heatmap.png`
+  - `<sample>_refined_heatmap.png`
+  - `<sample>_mask_h.png` — Raw heatmap thresholded at zero.
+  - `<sample>_mask_rh.png` — Smoothed heatmap thresholded at zero.
+- `--tissue-mask-dir` — Tissue GeoJSON directory. Defaults to `$JOB_DIR/contours_geojson`.
+- `--annotation-dir` — Directory containing GT annotation files.
+- `--contour-alpha` — Fill opacity for mask JSONs and PNG masks; default `0.35`.
 
 ### Tissue clipping and mask display
 
-- **`--tissue-mask-dir`** — Tissue GeoJSON directory. Defaults to `$JOB_DIR/contours_geojson`.
-- **`--annotation-dir`** — Directory containing GT annotation files.
-- **`--contour-alpha`** — Fill opacity for mask JSONs and PNG masks; default `0.35`.
-
-Tiles are clipped to matching tissue polygons; tiles outside tissue are omitted. Full tiles remain DSA rectangles, while partial tiles are exported as closed polylines. Coordinates use level-zero H5 tile metadata. 
-
-DSA JSON exports are root arrays with separate cortical and medullary rows. Masks use cyan for cortex and pink for medulla, with visible outlines. Existing JSON exports are not overwritten; use a new output directory or move them before rerunning.
 
 Import each JSON into the matching WSI item in Athena while signed in. The linked Athena item requires access, and inference does not upload annotations automatically. [Digital Slide Archive's annotation schema](https://girder.github.io/large_image/annotations.html) documents the format.
 
-To convert existing inference JSONs without another GPU run, write Athena annotations to a separate directory:
 
-```bash
-python -m scripts.convert_inference_json --input-dir "$JOB_DIR/inference_jsons" --output-dir "$JOB_DIR/inference_jsons_athena"
-```
-
-The converter preserves the model/sigma subfolders and original files. Converted score maps use two class rows. Legacy score maps store rounded sigmoid values, so conversion recovers approximate signed scores; a new inference run retains the original decision scores.
-
-Heatmaps show signed decision scores. For each source-grid cell, the raw score is the maximum score among overlapping tiles, so medullary predictions win cortex/medullary conflicts. The refined heatmap is the first-pass score after Gaussian smoothing. `mask_h.png` thresholds the raw score at zero; `mask_rh.png` thresholds the smoothed score at zero. Both mask overlays use cyan for cortex and pink for medulla and are restricted to cells that intersect the tissue contours. When matching annotation JSONs exist, the PNGs also show cortical contours in cyan and medullary contours in pink.
-
-Flags:
-
-- `--split`: select a workbook split; use a separate holdout workbook for new slides.
-- `--tile-mode all`: predict every H5 tile by default; `no-overlap` selects a sparse grid.
-- `--gaussian-sigma`: smoothing width in source-grid cells; default is `1`.
-- `--annotation-dir`: parent of per-slide annotation folders; defaults to `/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed/annotations`.
-- `--tissue-mask-dir`: parent directory of per-slide tissue contour GeoJSON files; defaults to `/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed_final/KPMP/contours_geojson`.
-- `--contour-alpha`: mask fill and PNG opacity from `0` to `1`; default is `0.35`.
-- `--no-visualize`: skip the four PNG overlays.
-- `--output-dir` and `--visualization-dir`: choose parent directories for model-and-sigma-named JSON and PNG folders.
