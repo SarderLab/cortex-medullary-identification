@@ -175,11 +175,34 @@ Use the saved H5 SVC model for a workbook split. This example visualizes the tes
 sbatch inference.sh --xlsx "$SPLIT_XLSX" --h5-dir "$H5_DIR" --model "$JOB_DIR/output/model_weights/svc_2_rbf/svc_2_rbf.pkl" --split test --output-dir "$JOB_DIR/inference_jsons" --visualization-dir "$JOB_DIR/prediction_visualization"
 ```
 
-Inference writes `<sample>_heatmap.json`, `<sample>_raw_heatmap.json`, `<sample>_refined_heatmap.json`, and `<sample>_mask_prediction.json`, plus `<sample>_mask_gt.json` when at least one matching GT source file exists. Outputs go under `--output-dir/svc_2_rbf_1.0/`; sample filenames use the workbook sample stem. `--visualize` writes exactly four PNGs: `<sample>_heatmap.png`, `<sample>_refined_heatmap.png`, `<sample>_mask_h.png` (raw heatmap thresholded at zero), and `<sample>_mask_rh.png` (smoothed heatmap thresholded at zero). The subfolder name combines the `.pkl` filename stem and Gaussian sigma.
+### Inference outputs
 
-All DSA JSON exports are root arrays with separate cortical and medullary rows. They are clipped to tissue polygons loaded from `--tissue-mask-dir`, which defaults to `/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed_final/KPMP/contours_geojson`. A per-slide `<sample>.geojson` file is preferred; matching `<sample>_*.geojson` and `<sample>.*.geojson` files are also accepted, including TRIDENT names such as `<sample>.noimagej.geojson`. Dotted slide stems such as `.pyr` are kept when matching contours. Set `--tissue-mask-dir` when the contours live elsewhere. Full tiles contained in tissue remain DSA rectangles; partial tiles are clipped to the tissue boundary and exported as closed polylines.
+Outputs are saved under `--output-dir/<model-stem>_<sigma>/` (for example, `svc_2_rbf_1.0/`). Filenames use the workbook sample stem.
 
-`<sample>_raw_heatmap.json` stores one signed SVC `decision_score` per predicted H5 tile, without overlap aggregation or Gaussian smoothing. Negative scores are cortical; zero or positive scores are medullary. Each tile shape is intersected with the matching tissue GeoJSON, so only tissue-covered portions are exported; tiles with no tissue area are omitted. The score remains the original tile score even when a tile is split into multiple polygons. `<sample>_heatmap.json` also stores the signed score per tile, with class-specific display opacity scaling; the new raw file provides an explicit `raw_heatmap` layer for downstream use. Coordinates use level-zero H5 tile metadata. `<sample>_refined_heatmap.json` stores the spatially smoothed first-pass heatmap; “refined” here refers to Gaussian smoothing, and inference does not fit a second SVC. `<sample>_mask_prediction.json` contains two polygon rows derived by thresholding the unsmoothed source-grid heatmap at zero. `<sample>_mask_gt.json` contains the matching GT polygon rows under `--annotation-dir`, with medullary geometry taking precedence over cortex in overlaps. Missing GT files are recorded as missing; if both GT files are absent, no GT mask JSON is written. Empty but present GT files yield empty rows. Both mask JSONs use cyan cortex and pink medulla fills with visible outlines. Their fill opacity and the PNG mask opacity are controlled by `--contour-alpha` (default `0.35`). Existing JSON exports are never overwritten; choose a new output directory or move them before rerunning.
+Inference writes:
+
+- `<sample>_heatmap.json` — Signed tile scores with class-specific display opacity.
+- `<sample>_raw_heatmap.json` — One signed SVC score per predicted H5 tile, without overlap aggregation or smoothing. Negative is cortical; zero or positive is medullary. Includes a `raw_heatmap` layer.
+- `<sample>_refined_heatmap.json` — Gaussian-smoothed first-pass heatmap; no second SVC is fitted.
+- `<sample>_mask_prediction.json` — Cortex and medulla polygons thresholded at zero on the unsmoothed source grid.
+- `<sample>_mask_gt.json` — Written when at least one matching GT source file exists. Medulla takes precedence over cortex in overlaps. Missing files are recorded; present but empty files produce empty rows.
+
+With `--visualize`, exactly four PNGs are written:
+
+- `<sample>_heatmap.png`
+- `<sample>_refined_heatmap.png`
+- `<sample>_mask_h.png` — Raw heatmap thresholded at zero.
+- `<sample>_mask_rh.png` — Smoothed heatmap thresholded at zero.
+
+### Tissue clipping and mask display
+
+- **`--tissue-mask-dir`** — Tissue GeoJSON directory. Defaults to `/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed_final/KPMP/contours_geojson`. Matches `<sample>.geojson`, `<sample>_*.geojson`, and `<sample>.*.geojson` files, including TRIDENT names such as `<sample>.noimagej.geojson`. Dotted slide stems such as `.pyr` are preserved.
+- **`--annotation-dir`** — Directory containing GT annotation files.
+- **`--contour-alpha`** — Fill opacity for mask JSONs and PNG masks; default `0.35`.
+
+Tiles are clipped to matching tissue polygons; tiles outside tissue are omitted. Full tiles remain DSA rectangles, while partial tiles are exported as closed polylines. Coordinates use level-zero H5 tile metadata. If a tile is split into multiple polygons, each retains the original score.
+
+DSA JSON exports are root arrays with separate cortical and medullary rows. Masks use cyan for cortex and pink for medulla, with visible outlines. Existing JSON exports are not overwritten; use a new output directory or move them before rerunning.
 
 Import each JSON into the matching WSI item in Athena while signed in. The linked Athena item requires access, and inference does not upload annotations automatically. [Digital Slide Archive's annotation schema](https://girder.github.io/large_image/annotations.html) documents the format.
 
