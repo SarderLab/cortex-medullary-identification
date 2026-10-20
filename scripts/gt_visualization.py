@@ -14,8 +14,10 @@ def _polygons(geometry: Any | None):
         return
     if geometry.geom_type == "Polygon":
         yield geometry
-    elif geometry.geom_type == "MultiPolygon":
-        yield from geometry.geoms
+    elif geometry.geom_type in ("MultiPolygon", "GeometryCollection"):
+        for part in geometry.geoms:
+            if part.geom_type in ("Polygon", "MultiPolygon", "GeometryCollection"):
+                yield from _polygons(part)
     else:
         raise ValueError(f"Expected polygon GT, got {geometry.geom_type}")
 

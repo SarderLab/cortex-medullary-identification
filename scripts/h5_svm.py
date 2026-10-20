@@ -15,9 +15,9 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix, matthews_corrcoef, roc_auc_score
 
 KPMP = Path("/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed_final/KPMP")
-FEATURE_ROOT = KPMP / "40x_512px_256px_overlap"
+FEATURE_ROOT = KPMP / "40x_512px_384px_overlap"
 LABELS = ("cortex", "medullary")
-CS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 0.9, 1, 2, 3, 4, 5)
+CS = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 0.9, 1, 2, 3, 4, 5)
 
 
 def feature_index(root: Path) -> dict[str, Path]:
@@ -155,7 +155,7 @@ def gpu_modules():
             raise RuntimeError("Exactly one visible GPU is required")
         return cp, StandardScaler, SVC
     except Exception as error:
-        raise RuntimeError("Use one GPU compute node with the rapids_svc environment") from error
+        raise RuntimeError("Use one GPU compute node with the project RAPIDS/CuPy environment") from error
 
 
 def fit_svc(x: np.ndarray, y: np.ndarray, c: float, kernel: str, cache_mb: int):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from scripts.h5_svm import (FEATURE_ROOT, KPMP, c_name, decision_scores, fit_svc,
+from .h5_svm import (FEATURE_ROOT, KPMP, c_name, decision_scores, fit_svc,
                         load_split, metric_row, metrics, save_cm, save_model,
                         workbook_rows)
 
@@ -19,8 +19,8 @@ def main() -> None:
     p.add_argument("--tile-mode", choices=("all", "no-overlap"), default="all")
     p.add_argument("--include-val", action="store_true")
     p.add_argument("--model-dir", type=Path, default=KPMP / "output/model_weights")
-    p.add_argument("--cache-mb", type=int, default=4096)
-    p.add_argument("--batch-size", type=int, default=32768)
+    p.add_argument("--cache-mb", type=int, default=8192)
+    p.add_argument("--batch-size", type=int, default=65536)
     args = p.parse_args()
     if args.C <= 0 or args.cache_mb <= 0:
         p.error("--C and --cache-mb must be positive")
@@ -37,16 +37,17 @@ def main() -> None:
     model["metadata"].update({"tile_mode": args.tile_mode, "fitted_splits": ["train", "val"] if args.include_val else ["train"],
                                "xlsx": str(args.xlsx.resolve()), "h5_dir": str(args.h5_dir.resolve())})
     name = f"svc_{c_name(args.C)}_{args.kernel}"
-    path = args.model_dir / f"{name}.pkl"
+    model_dir = args.model_dir / name
+    path = model_dir / f"{name}.pkl"
     save_model(path, model)
     train = metrics(train_y, decision_scores(model, train_x, args.batch_size))
     test = metrics(test_y, decision_scores(model, test_x, args.batch_size))
-    save_cm(args.model_dir / f"{name}_train_confusion_matrix.png", train, f"{name} train")
-    save_cm(args.model_dir / f"{name}_test_confusion_matrix.png", test, f"{name} test")
+    save_cm(model_dir / f"{name}_train_confusion_matrix.png", train, f"{name} train")
+    save_cm(model_dir / f"{name}_test_confusion_matrix.png", test, f"{name} test")
     import pandas as pd
     pd.DataFrame([{"C": args.C, "kernel": args.kernel, "tile_mode": args.tile_mode,
                    **metric_row("train", train), **metric_row("test", test)}]).to_excel(
-        args.model_dir / f"{name}_metrics.xlsx", index=False)
+        model_dir / f"{name}_metrics.xlsx", index=False)
     print(f"Saved {path}; test balanced accuracy={test['balanced_accuracy']:.4f}", flush=True)
 
 

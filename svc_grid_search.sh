@@ -4,7 +4,7 @@
 #SBATCH --job-name=svc_grid_search
 #SBATCH --output=logs/svc_grid_search_%j.out
 #SBATCH --error=logs/svc_grid_search_%j.err
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=hpg-turin
@@ -13,4 +13,4 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")}"
 module load conda
 conda activate "${CORT_MED_CONDA_ENV:-/blue/pinaki.sarder/j.fermin/conda/envs/cort_med_gpu}"
-exec python svc_grid_search.py "$@"
+exec python -m scripts.svc_grid_search "$@"
