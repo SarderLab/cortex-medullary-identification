@@ -132,10 +132,8 @@ Search linear and RBF kernels and several `C` values using training data for fit
 sbatch svc_grid_search.sh --xlsx "$SPLIT_XLSX" --h5-dir "$H5_DIR" --tile-mode all --output-root "$JOB_DIR/grid_search_results"
 ```
 
-Results go to `JOB_DIR/grid_search_results/<timestamp>/`. Read `best_hyperparameters.json` for the chosen `C` and kernel. The test split must not guide that choice.
-
+Results go to `JOB_DIR/grid_search_results/<timestamp>/`. Read `best_hyperparameters.json` for the chosen `C` and kernel. 
 Flags:
-
 - `--tile-mode all`: use every H5 tile; use `no-overlap` for a sparse, nonoverlapping grid.
 - `--include-val`: also refit each candidate on train plus validation after its validation score is recorded.
 - `--output-root`: choose where search results and confusion matrices are saved.
