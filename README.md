@@ -117,24 +117,14 @@ To build `dataset_all_split.xlsx` from all available KPMP WSIs with matching
 python -m scripts.dataset_all_split
 ```
 
-This searches the three `Cort_Med_Project/KPMP_*/Labelled_files` directories and
-`KPMP_batch2` through `KPMP_batch6/Labelled_files`, plus
-`/orange/pinaki.sarder/Davy_Jones_Locker/MMAI_OT2_Data/UF/Kidney_Biopsy_Images/Converted_TIFF_Images`,
-recursively. It keeps the
-five columns and existing tile counts from `dataset_split.xlsx` for matching
-slides. Slides in the UF converted TIFF directory receive `UF_CKD`; other new
-slides receive `holdout`. New slides have `0.0` for both tile counts, and
-existing non-UF splits are retained.
-Slides without a matching H5 file are omitted. If a WSI appears at multiple
-paths, its existing workbook path is preferred; otherwise the first path in
-sorted order is used. The output must not already exist.
+Flags:
 
-Use `--wsi-dirs DIR [DIR ...]`, `--h5-dir DIR`, `--source FILE`, or `--output FILE`
-to supply other locations. `--h5-dir` should point to the feature H5 folder
-for the encoder and tile geometry used by inference. The new workbook is
-ignored by Git because it is generated from research data.
+- `--wsi-dirs DIR [DIR ...]` — Use different WSI directories.
+- `--h5-dir DIR`** — Use a different feature H5 folder. It must match the encoder and tile geometry used for inference.
+- `--source FILE` — Use a different source workbook.
+- `--output FILE` — Set the output workbook path.
 
-## Optional GPU SVC grid search
+## GPU SVC grid search
 
 Search linear and RBF kernels and several `C` values using training data for fitting and validation data for selection:
 
@@ -142,10 +132,8 @@ Search linear and RBF kernels and several `C` values using training data for fit
 sbatch svc_grid_search.sh --xlsx "$SPLIT_XLSX" --h5-dir "$H5_DIR" --tile-mode all --output-root "$JOB_DIR/grid_search_results"
 ```
 
-Results go to `JOB_DIR/grid_search_results/<timestamp>/`. Read `best_hyperparameters.json` for the chosen `C` and kernel. The test split must not guide that choice.
-
+Results go to `JOB_DIR/grid_search_results/<timestamp>/`. Read `best_hyperparameters.json` for the chosen `C` and kernel. 
 Flags:
-
 - `--tile-mode all`: use every H5 tile; use `no-overlap` for a sparse, nonoverlapping grid.
 - `--include-val`: also refit each candidate on train plus validation after its validation score is recorded.
 - `--output-root`: choose where search results and confusion matrices are saved.
@@ -175,31 +163,32 @@ Use the saved H5 SVC model for a workbook split. This example visualizes the tes
 sbatch inference.sh --xlsx "$SPLIT_XLSX" --h5-dir "$H5_DIR" --model "$JOB_DIR/output/model_weights/svc_2_rbf/svc_2_rbf.pkl" --split test --output-dir "$JOB_DIR/inference_jsons" --visualization-dir "$JOB_DIR/prediction_visualization"
 ```
 
-Inference writes `<sample>_heatmap.json`, `<sample>_refined_heatmap.json`, and `<sample>_mask_prediction.json`, plus `<sample>_mask_gt.json` when at least one matching GT source file exists. Outputs go under `--output-dir/svc_2_rbf_1.0/`; sample filenames use the workbook sample stem. `--visualize` writes exactly four PNGs: `<sample>_heatmap.png`, `<sample>_refined_heatmap.png`, `<sample>_mask_h.png` (raw heatmap thresholded at zero), and `<sample>_mask_rh.png` (smoothed heatmap thresholded at zero). The subfolder name combines the `.pkl` filename stem and Gaussian sigma.
+### Inference outputs
 
-All DSA JSON exports are root arrays with separate cortical and medullary rows. They are clipped to tissue polygons loaded from `--tissue-mask-dir`, which defaults to `/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed_final/KPMP/contours_geojson`. A per-slide `<sample>.geojson` file is preferred; matching `<sample>_*.geojson` and `<sample>.*.geojson` files are also accepted, including TRIDENT names such as `<sample>.noimagej.geojson`. Dotted slide stems such as `.pyr` are kept when matching contours. Set `--tissue-mask-dir` when the contours live elsewhere. Full tiles contained in tissue remain DSA rectangles; partial tiles are clipped to the tissue boundary and exported as closed polylines.
+Outputs are saved under `--output-dir/<model-stem>_<sigma>/` (for example, `svc_2_rbf_1.0/`). Filenames use the workbook sample stem.
 
-`<sample>_heatmap.json` stores the signed SVC `decision_score` per tile, the raw value in element metadata, and class-specific display opacity scaling. Coordinates use level-zero H5 tile metadata. `<sample>_refined_heatmap.json` stores the spatially smoothed first-pass heatmap; “refined” here refers to Gaussian smoothing, and inference does not fit a second SVC. `<sample>_mask_prediction.json` contains two polygon rows derived by thresholding the unsmoothed source-grid heatmap at zero: negative scores are cortical and zero or positive scores are medullary. `<sample>_mask_gt.json` contains the matching GT polygon rows under `--annotation-dir`, with medullary geometry taking precedence over cortex in overlaps. Missing GT files are recorded as missing; if both GT files are absent, no GT mask JSON is written. Empty but present GT files yield empty rows. Both mask JSONs use cyan cortex and pink medulla fills with visible outlines. Their fill opacity and the PNG mask opacity are controlled by `--contour-alpha` (default `0.35`). Existing JSON exports are never overwritten; choose a new output directory or move them before rerunning.
+Inference writes:
 
-Import each JSON into the matching WSI item in Athena while signed in. The linked Athena item requires access, and inference does not upload annotations automatically. [Digital Slide Archive's annotation schema](https://girder.github.io/large_image/annotations.html) documents the format.
-
-To convert existing inference JSONs without another GPU run, write Athena annotations to a separate directory:
-
-```bash
-python -m scripts.convert_inference_json --input-dir "$JOB_DIR/inference_jsons" --output-dir "$JOB_DIR/inference_jsons_athena"
-```
-
-The converter preserves the model/sigma subfolders and original files. Converted score maps use two class rows. Legacy score maps store rounded sigmoid values, so conversion recovers approximate signed scores; a new inference run retains the original decision scores.
-
-Heatmaps show signed decision scores. For each source-grid cell, the raw score is the maximum score among overlapping tiles, so medullary predictions win cortex/medullary conflicts. The refined heatmap is the first-pass score after Gaussian smoothing. `mask_h.png` thresholds the raw score at zero; `mask_rh.png` thresholds the smoothed score at zero. Both mask overlays use cyan for cortex and pink for medulla and are restricted to cells that intersect the tissue contours. When matching annotation JSONs exist, the PNGs also show cortical contours in cyan and medullary contours in pink.
+- `<sample>_heatmap.json` — Signed tile scores with class-specific display opacity.
+- `<sample>_raw_heatmap.json` — One signed SVC score per tile. Negative is cortical; zero or positive is medullary. Includes a `raw_heatmap` layer.
+- `<sample>_refined_heatmap.json` — Gaussian-smoothed first-pass heatmap.
+- `<sample>_mask_prediction.json` — Cortex and medulla polygons thresholded at zero on the  `<sample>_heatmap`.
+- `<sample>_mask_gt.json` — Written when at least one matching GT source file exists.
 
 Flags:
+- `--visualize` — generates PNGs to `$JOB_DIR/predictions_visualization`:
+  - `<sample>_heatmap.png`
+  - `<sample>_refined_heatmap.png`
+  - `<sample>_mask_h.png` — Raw heatmap thresholded at zero.
+  - `<sample>_mask_rh.png` — Smoothed heatmap thresholded at zero.
+- `--tissue-mask-dir` — Tissue GeoJSON directory. Defaults to `$JOB_DIR/contours_geojson`.
+- `--annotation-dir` — Directory containing GT JSON annotation files.
+- `--contour-alpha` — Fill opacity for mask JSONs and PNG masks; default `0.35`.
 
-- `--split`: select a workbook split; use a separate holdout workbook for new slides.
-- `--tile-mode all`: predict every H5 tile by default; `no-overlap` selects a sparse grid.
-- `--gaussian-sigma`: smoothing width in source-grid cells; default is `1`.
-- `--annotation-dir`: parent of per-slide annotation folders; defaults to `/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed/annotations`.
-- `--tissue-mask-dir`: parent directory of per-slide tissue contour GeoJSON files; defaults to `/orange/pinaki.sarder/j.fermin/cort_med_wsi/trident_processed_final/KPMP/contours_geojson`.
-- `--contour-alpha`: mask fill and PNG opacity from `0` to `1`; default is `0.35`.
-- `--no-visualize`: skip the four PNG overlays.
-- `--output-dir` and `--visualization-dir`: choose parent directories for model-and-sigma-named JSON and PNG folders.
+## Transfer annotation JSON files from HiPerGator to Athena
+
+Use the [HPG-ATHENA-Transfer](https://github.com/UFerminJamie/HPG-ATHENA-Transfer) tool to attach annotation JSON documents from HiPerGator to their matching slide items in Athena. It reads the JSON files on HiPerGator and sends their annotation contents through Athena’s Girder API.
+
+
+
+
